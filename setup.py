@@ -2,19 +2,18 @@ from setuptools import setup, find_packages
 
 setup(
     name="gcont",  # Name of the package
-    version="0.1.0",  # Initial release version
+    version="0.1.1",  # Initial release version
     packages=find_packages(),  # Automatically find packages in the directory
     include_package_data=True,  # Include files from MANIFEST.in
     install_requires=[
         "pyyaml",  # Include any dependencies your package needs
-        # Other dependencies can be listed here
     ],
     entry_points={
         "console_scripts": [
             "gcont=gcont.main:main",  # This creates the command line tool 'gcont'
         ],
     },
-    author="Your Name",
+    author="Ayoub Achak",
     author_email="ayoub.achak01@gmail.com",
     description="A tool for gathering and documenting project files.",
     long_description=open("README.md").read(),
