@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="gcont",  # Name of the package
-    version="0.1.3",  # Initial release version
+    version="0.1.4",  # Initial release version
     packages=find_packages(),  # Automatically find packages in the directory
     include_package_data=True,  # Include files from MANIFEST.in
     install_requires=[
