@@ -62,30 +62,26 @@ def gather_code_files(root_dirs, include_patterns, exclude_patterns, use_git_dif
     gathered_files = []
 
     for root_dir in root_dirs:
-        exclude_dirs = set(detect_unwanted_directories(root_dir))
-
         if use_git_diff:
             changed_files = get_changed_files()
             for file_path in changed_files:
-                file_name = os.path.basename(file_path)
-                if any(fnmatch.fnmatch(file_name, pattern) for pattern in exclude_patterns):
+                if any(fnmatch.fnmatch(file_path, pattern) for pattern in exclude_patterns):
                     continue
                 if any(fnmatch.fnmatch(file_path, pattern) for pattern in include_patterns):
                     gathered_files.append(file_path)
         else:
             for root, dirs, files in os.walk(root_dir):
+                # Apply exclude patterns to directories
+                dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(os.path.join(root, d), pattern) for pattern in exclude_patterns)]
+                
                 # Debugging: print current directory
                 print(f"Traversing directory: {root}")
 
-                # Exclude directories detected dynamically
-                dirs[:] = [d for d in dirs if os.path.join(root, d) not in exclude_dirs]
-
                 for file in files:
                     file_path = os.path.join(root, file)
-                    file_name = os.path.basename(file_path)
                     
                     # Skip files in excluded directories or matching exclude patterns
-                    if any(fnmatch.fnmatch(file_name, pattern) for pattern in exclude_patterns):
+                    if any(fnmatch.fnmatch(file_path, pattern) for pattern in exclude_patterns):
                         continue
 
                     # Check if the file matches any of the include patterns
@@ -93,6 +89,7 @@ def gather_code_files(root_dirs, include_patterns, exclude_patterns, use_git_dif
                         gathered_files.append(file_path)
 
     return gathered_files
+
 
 
 def get_language_by_extension(file_path):
