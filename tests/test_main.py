@@ -1,77 +1,87 @@
 import unittest
 import os
+import tempfile
 from gcont.main import detect_project_type, gather_code_files, get_language_by_extension
 
 class TestGcont(unittest.TestCase):
-
+    
     def setUp(self):
-        """Set up test directories and files."""
-        self.root_dir = 'test_gather'
-        os.makedirs(self.root_dir, exist_ok=True)
-        
-        # Create some test files
-        with open(os.path.join(self.root_dir, 'example.py'), 'w') as f:
-            f.write('print("Hello World")')
-        
-        with open(os.path.join(self.root_dir, 'example.txt'), 'w') as f:
-            f.write('This is a text file.')
-        
-        os.makedirs(os.path.join(self.root_dir, 'venv'), exist_ok=True)
-        with open(os.path.join(self.root_dir, 'venv', 'dummy.py'), 'w') as f:
-            f.write('print("This should be excluded")')
+        """Set up a temporary directory structure for testing."""
+        self.test_dir = tempfile.TemporaryDirectory()
+        self.test_root = self.test_dir.name
+
+        # Create files and directories to simulate different project types
+        os.makedirs(os.path.join(self.test_root, 'node_modules'))
+        os.makedirs(os.path.join(self.test_root, 'components'))
+        os.makedirs(os.path.join(self.test_root, 'components', 'utils'))
+        os.makedirs(os.path.join(self.test_root, 'venv'))
+        os.makedirs(os.path.join(self.test_root, '.git'))
+
+        # Create some files
+        with open(os.path.join(self.test_root, 'manage.py'), 'w') as f:
+            f.write("# Django manage file")
+        with open(os.path.join(self.test_root, 'requirements.txt'), 'w') as f:
+            f.write("Django==3.2")
+        with open(os.path.join(self.test_root, 'components', 'index.js'), 'w') as f:
+            f.write("// React component")
+        with open(os.path.join(self.test_root, 'components', 'utils', 'helper.js'), 'w') as f:
+            f.write("// Helper function")
+        with open(os.path.join(self.test_root, 'node_modules', 'module.js'), 'w') as f:
+            f.write("// Node module")
+        with open(os.path.join(self.test_root, 'venv', 'script.py'), 'w') as f:
+            f.write("# Python virtual environment script")
+        with open(os.path.join(self.test_root, '.git', 'config'), 'w') as f:
+            f.write("# Git config")
 
     def tearDown(self):
-        """Clean up the test directories and files."""
-        for root, dirs, files in os.walk(self.root_dir, topdown=False):
-            for name in files:
-                os.remove(os.path.join(root, name))
-            for name in dirs:
-                os.rmdir(os.path.join(root, name))
-        os.rmdir(self.root_dir)
+        """Clean up the temporary directory."""
+        self.test_dir.cleanup()
 
-    def test_detect_project_type_django(self):
-        root_dir = 'test_project_django'
-        os.makedirs(root_dir, exist_ok=True)
-        with open(os.path.join(root_dir, 'manage.py'), 'w') as f:
-            f.write('print("Django project")')
-        with open(os.path.join(root_dir, 'requirements.txt'), 'w') as f:
-            f.write('Django')
-        self.assertEqual(detect_project_type(root_dir), "django")
-        os.remove(os.path.join(root_dir, 'manage.py'))
-        os.remove(os.path.join(root_dir, 'requirements.txt'))
-        os.rmdir(root_dir)
+    def test_detect_project_type(self):
+        """Test project type detection."""
+        self.assertEqual(detect_project_type(self.test_root), "django")
+        
+        # Remove Django-specific files and add Node.js files
+        os.remove(os.path.join(self.test_root, 'manage.py'))
+        os.remove(os.path.join(self.test_root, 'requirements.txt'))
+        with open(os.path.join(self.test_root, 'package.json'), 'w') as f:
+            f.write("{ }")
 
-    def test_detect_project_type_flask(self):
-        root_dir = 'test_project_flask'
-        os.makedirs(root_dir, exist_ok=True)
-        with open(os.path.join(root_dir, 'app.py'), 'w') as f:
-            f.write('print("Flask project")')
-        with open(os.path.join(root_dir, 'requirements.txt'), 'w') as f:
-            f.write('Flask')
-        self.assertEqual(detect_project_type(root_dir), "flask")
-        os.remove(os.path.join(root_dir, 'app.py'))
-        os.remove(os.path.join(root_dir, 'requirements.txt'))
-        os.rmdir(root_dir)
+        self.assertEqual(detect_project_type(self.test_root), "nodejs")
+
+    def test_gather_code_files_with_exclusions(self):
+        """Test gathering files with exclusion patterns."""
+        include_patterns = ["*.js", "*.py"]
+        # Adding explicit pattern to exclude 'manage.py' if it shouldn't be included
+        exclude_patterns = ["node_modules/*", ".git/*", "venv/*", "manage.py"]
+
+        gathered_files = gather_code_files([self.test_root], include_patterns, exclude_patterns)
+        expected_files = [
+            os.path.join(self.test_root, 'components', 'index.js'),
+            os.path.join(self.test_root, 'components', 'utils', 'helper.js')
+        ]
+        self.assertCountEqual(gathered_files, expected_files)
+
+
+    def test_gather_code_files_with_inclusions(self):
+        """Test gathering files with specific inclusion patterns."""
+        include_patterns = ["*.js"]
+        exclude_patterns = []
+        
+        gathered_files = gather_code_files([self.test_root], include_patterns, exclude_patterns)
+        expected_files = [
+            os.path.join(self.test_root, 'components', 'index.js'),
+            os.path.join(self.test_root, 'components', 'utils', 'helper.js'),
+            os.path.join(self.test_root, 'node_modules', 'module.js')
+        ]
+        self.assertCountEqual(gathered_files, expected_files)
 
     def test_get_language_by_extension(self):
-        self.assertEqual(get_language_by_extension('example.py'), 'python')
-        self.assertEqual(get_language_by_extension('example.js'), 'javascript')
-        self.assertEqual(get_language_by_extension('example.txt'), '')
+        """Test language detection based on file extensions."""
+        self.assertEqual(get_language_by_extension("script.py"), "python")
+        self.assertEqual(get_language_by_extension("index.js"), "javascript")
+        self.assertEqual(get_language_by_extension("styles.css"), "css")
+        self.assertEqual(get_language_by_extension("unknown.ext"), "")
 
-    def test_gather_code_files_include(self):
-        """Test gathering files with include patterns."""
-        gathered_files = gather_code_files([self.root_dir], ['*.py'], [])
-        self.assertEqual(len(gathered_files), 2)  # Both 'example.py' and 'venv/dummy.py' should be included
-        self.assertTrue('example.py' in gathered_files[0])
-        self.assertTrue('dummy.py' in gathered_files[1])
-
-    def test_gather_code_files_exclude(self):
-        """Test gathering files with exclude patterns."""
-        gathered_files = gather_code_files([self.root_dir], ['*.py'], [os.path.join(self.root_dir, 'venv/*')])
-        self.assertEqual(len(gathered_files), 1)  # Only 'example.py' should be included
-        self.assertTrue('example.py' in gathered_files[0])
-        self.assertFalse(any('dummy.py' in file for file in gathered_files))
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

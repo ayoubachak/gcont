@@ -1,11 +1,9 @@
 import argparse
 import os
-
-import os
 import fnmatch
-import argparse
 import subprocess
 import yaml
+import shlex
 
 # Map of file extensions to programming languages for code block syntax highlighting
 EXTENSION_TO_LANGUAGE = {
@@ -40,17 +38,17 @@ def detect_project_type(root_dir):
     else:
         return "generic"
 
-def detect_unwanted_directories(root_dir):
-    """Detect common directories that should be excluded, such as node_modules, build, dist."""
-    unwanted_dirs = []
+def parse_patterns(pattern_string):
+    """Parse comma-separated patterns into a list."""
+    if pattern_string:
+        return [pattern.strip() for pattern in pattern_string.split(',')]
+    return []
 
-    for root, dirs, _ in os.walk(root_dir):
-        for d in dirs:
-            if d in ["node_modules", "build", "dist", "__pycache__", ".git"]:
-                unwanted_dirs.append(os.path.join(root, d))
-        break  # Only need to inspect the top-level directories
+def should_exclude(path, exclude_patterns):
+    """Check if a path should be excluded based on patterns."""
+    return any(fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(os.path.basename(path), pattern)
+               for pattern in exclude_patterns)
 
-    return unwanted_dirs
 
 def get_changed_files():
     """Get a list of files that have changed since the last commit."""
@@ -65,28 +63,38 @@ def gather_code_files(root_dirs, include_patterns, exclude_patterns, use_git_dif
         if use_git_diff:
             changed_files = get_changed_files()
             for file_path in changed_files:
-                if any(fnmatch.fnmatch(file_path, pattern) for pattern in exclude_patterns):
+                if should_exclude(file_path, exclude_patterns):
+                    print(f"Excluding (git diff): {file_path}")
                     continue
                 if any(fnmatch.fnmatch(file_path, pattern) for pattern in include_patterns):
+                    print(f"Including (git diff): {file_path}")
                     gathered_files.append(file_path)
         else:
             for root, dirs, files in os.walk(root_dir):
+                # Convert root to a relative path for better matching
+                rel_root = os.path.relpath(root, start=root_dir)
+
                 # Apply exclude patterns to directories
-                dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(os.path.join(root, d), pattern) for pattern in exclude_patterns)]
+                dirs[:] = [d for d in dirs if not should_exclude(os.path.join(rel_root, d), exclude_patterns)]
                 
-                # Debugging: print current directory
-                print(f"Traversing directory: {root}")
+                # Print the directory only if it's not excluded
+                if not should_exclude(rel_root, exclude_patterns):
+                    print(f"Traversing directory: {root}")
+                else:
+                    print(f"Excluding directory: {root}")
 
                 for file in files:
-                    file_path = os.path.join(root, file)
+                    file_path = os.path.join(rel_root, file)
                     
-                    # Skip files in excluded directories or matching exclude patterns
-                    if any(fnmatch.fnmatch(file_path, pattern) for pattern in exclude_patterns):
+                    # Skip files matching exclude patterns
+                    if should_exclude(file_path, exclude_patterns):
+                        print(f"Excluding file: {file_path}")
                         continue
 
                     # Check if the file matches any of the include patterns
                     if any(fnmatch.fnmatch(file_path, pattern) for pattern in include_patterns):
-                        gathered_files.append(file_path)
+                        print(f"Including file: {os.path.join(root, file)}")
+                        gathered_files.append(os.path.join(root, file))
 
     return gathered_files
 
@@ -113,7 +121,16 @@ def write_to_context_md(gathered_files, output_file="context.md"):
 
 def get_patterns_by_project_type(project_type):
     """Return include and exclude patterns based on the project type."""
-    global_exclude_patterns = [".git/*", "*__pycache__/*", "*.egg-info/*"]
+    global_exclude_patterns = [
+        ".git/*", 
+        "*__pycache__/*", 
+        "node_modules/*", 
+        "venv/*",
+        ".venv/*",
+        "env/*",
+        ".env/*",
+        "*.egg-info/*"
+        ]
     
     if project_type == "django":
         include_patterns = ["*.py"]
@@ -150,30 +167,29 @@ def load_config_from_yaml(root_dir):
             return yaml.safe_load(config_file)
     return {}
 
-
 def main():
     parser = argparse.ArgumentParser(description="Gather important code files for context documentation.")
     parser.add_argument("--project", type=str, help="Specify the project type (e.g., django, flask, nodejs, react, nextjs, spring_boot, python_package, generic).")
-    parser.add_argument("--root", type=str, default=".", help="Specify the root directory to search for files.")
-    parser.add_argument("--include", type=str, nargs='*', help="Additional include patterns (e.g., '*.html', '*.css').")
-    parser.add_argument("--exclude", type=str, nargs='*', help="Additional exclude patterns (e.g., '*.log', '*.tmp').")
+    parser.add_argument("--root", type=str, nargs='*', default=["."], help="Specify the root directory(ies) to search for files. Use quotes for directories with spaces.")
+    parser.add_argument("--include", type=str, help="Additional include patterns (comma-separated, e.g., '*.html,*.css').")
+    parser.add_argument("--exclude", type=str, help="Additional exclude patterns (comma-separated, e.g., '*.log,*.tmp').")
     parser.add_argument("--git-diff", action='store_true', help="Only include files that have changed since the last commit.")
     parser.add_argument("--verbose", action='store_true', help="Enable verbose output to list all gathered files before writing them.")
     args = parser.parse_args()
 
     # Load configuration from YAML if available
-    yaml_config = load_config_from_yaml(args.root)
+    yaml_config = load_config_from_yaml(args.root[0])
     
     # Override command-line arguments with YAML configuration if present
     project_type = yaml_config.get('project', args.project)
     if not project_type:
-        project_type = detect_project_type(args.root)
+        project_type = detect_project_type(args.root[0])
     else:
         project_type = project_type.lower()
 
-    root_dir = yaml_config.get('root', args.root)
-    include_patterns = yaml_config.get('include', args.include) or []
-    exclude_patterns = yaml_config.get('exclude', args.exclude) or []
+    root_dirs = yaml_config.get('root', args.root)
+    include_patterns = yaml_config.get('include', parse_patterns(args.include)) or []
+    exclude_patterns = yaml_config.get('exclude', parse_patterns(args.exclude)) or []
     use_git_diff = yaml_config.get('git_diff', args.git_diff)
     verbose = yaml_config.get('verbose', args.verbose)
 
@@ -185,7 +201,7 @@ def main():
     exclude_patterns = default_exclude_patterns + exclude_patterns
 
     # Gather the code files
-    gathered_files = gather_code_files(root_dir, include_patterns, exclude_patterns, use_git_diff=use_git_diff)
+    gathered_files = gather_code_files(root_dirs, include_patterns, exclude_patterns, use_git_diff=use_git_diff)
 
     # Verbose output: List all gathered files before writing them
     if verbose:
