@@ -1,0 +1,11 @@
+project: react
+root: .
+include:
+  - '*.html'
+  - '*.css'
+exclude:
+  - '*.test.js'
+  - '*.test.jsx'
+  - 'node_modules/*'
+git_diff: false
+verbose: true
